@@ -2,13 +2,15 @@ import os
 import uvicorn
 import uuid
 import sys
-import random
+import random 
+import json 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
+from typing import Union, Optional, Literal
 from masumi.config import Config
 from masumi.payment import Payment, Amount
-from risk_manager_definition import RiskAssessmentTeam, RiskAssessmentType
+from risk_manager_definition import RiskAssessmentManager, RiskAssessmentType, ResearchManager
 from logging_config import setup_logging
 
 logger = setup_logging()
@@ -19,15 +21,16 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL")
 PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY")
 NETWORK = os.getenv("NETWORK")
-AGENT_IDENTIFIER = os.getenv("AGENT_IDENTIFIER")
+AGENT_IDENTIFIER = os.getenv("AGENT_IDENTIFIER") 
 
-logger.info("Starting application with configuration:")
+logger.info("Starting On-Chain Risk Manager Agent with configuration:")
 logger.info(f"PAYMENT_SERVICE_URL: {PAYMENT_SERVICE_URL}")
+logger.info(f"NETWORK: {NETWORK}")
 
 app = FastAPI(
-    title="Masumi Risk Management Agent API",
-    description="API for running a Risk Management Agent with Masumi payment integration",
-    version="1.0.0"
+    title="Masumi On-Chain Risk Manager API", 
+    description="API for on-chain DeFi risk assessment with Masumi payment integration",
+    version="2.0.0"
 )
 
 jobs = {}
@@ -41,128 +44,156 @@ config = Config(
 def map_risk_score(score: int) -> str:
     """Maps a 0-100 risk score to a visual level."""
     if score >= 75:
-        return f"{score}% = Great (🟢)"
+        return f"{score}% = Low Risk (🟢)"
     elif score >= 50:
-        return f"{score}% = Best (🟠)"
+        return f"{score}% = Moderate Risk (🟡)"
     elif score >= 25:
-        return f"{score}% = Better (🟡)"
+        return f"{score}% = High Risk (🟠)"
     else:
-        return f"{score}% = Bad (🔴)"
+        return f"{score}% = Extreme Risk (🔴)"
 
 class TradingRiskInput(BaseModel):
     """Input data for Trading Risk Assessment."""
-    token_symbol: str = Field(..., description="The symbol of the token (e.g., BTC, ETH).")
+    token_symbol: str = Field(..., description="The symbol of the token (e.g., BTC, ETH, ADA).")
     time_period: str = Field("1 year", description="The historical period to analyze (e.g., '6 months', '2 years').")
-    more_parameters: str = Field("", description="Additional factors for the agent to consider (e.g., 'recent exchange listing', 'major upgrade').")
+    more_parameters: str = Field("", description="Additional factors for on-chain analysis.")
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "token_symbol": "ADA",
                 "time_period": "3 months",
-                "more_parameters": "Include analysis of recent staking yield changes."
+                "more_parameters": "Include analysis of on-chain staking patterns and validator distribution."
             }
         }
+    }
 
 class LendingBorrowingRiskInput(BaseModel):
     """Input data for Lending/Borrowing Risk Assessment."""
     borrowing_asset: str = Field(..., description="The asset being borrowed (e.g., USDC, wBTC).")
-    borrower_history_summary: str = Field(..., description="Summary of the borrower's borrowing history and credit score.")
+    borrower_history_summary: str = Field(..., description="Summary of the borrower's on-chain history and creditworthiness.")
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "borrowing_asset": "USDC",
-                "borrower_history_summary": "Excellent 2-year history, 0 defaults, LTV ratio always below 50%."
+                "borrower_history_summary": "Excellent 2-year on-chain history, 0 defaults, average LTV ratio 45%, consistent collateral maintenance."
             }
         }
+    }
+
+class ProtocolSecurityInput(BaseModel):
+    """Input data for Protocol Security Risk Assessment."""
+    protocol_name: str = Field(..., description="The name of the DeFi protocol (e.g., DeFiSwap V3).")
+    audit_summary: str = Field(..., description="Summary of smart contract audit findings and last audit date.")
+    on_chain_activity_summary: str = Field(..., description="Summary of recent on-chain activity and anomalous patterns.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "protocol_name": "DeFiSwap V3",
+                "audit_summary": "Last audit: 8 months ago by CertiK. 2 medium-severity issues remain unresolved.",
+                "on_chain_activity_summary": "Recent spike in flash loan activity. 3 large withdrawals (>$1M) in past week from governance contract."
+            }
+        }
+    }
+
+class LiquidityRiskInput(BaseModel):
+    """Input data for Liquidity/Concentration Risk Assessment."""
+    token_symbol: str = Field(..., description="The symbol of the token.")
+    number_of_wallets: int = Field(10, description="The top N wallets to analyze for concentration.")
+    large_trade_amount: str = Field("1,000,000 USD", description="The size of a hypothetical sell order to simulate price impact.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "token_symbol": "ABC",
+                "number_of_wallets": 5,
+                "large_trade_amount": "500000 USD"
+            }
+        }
+    }
+
+RiskInputUnion = Union[TradingRiskInput, LendingBorrowingRiskInput, ProtocolSecurityInput, LiquidityRiskInput]
 
 class RiskAssessmentRequest(BaseModel):
-    """Request model for the new /risk_assessment endpoint."""
+    """Request model for the /risk_assessment endpoint."""
     identifier_from_purchaser: str
     risk_type: RiskAssessmentType
-    input_data: TradingRiskInput | LendingBorrowingRiskInput
+    input_data: RiskInputUnion 
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
-                "identifier_from_purchaser": "user-loan-request-123",
-                "risk_type": "lending_borrowing",
+                "identifier_from_purchaser": "protocol-security-check-456",
+                "risk_type": "protocol_security",
                 "input_data": {
-                    "borrowing_asset": "ETH",
-                    "borrower_history_summary": "New user, small loan size, collateral is stablecoin."
+                    "protocol_name": "DeFiSwap V3",
+                    "audit_summary": "Last audit: 8 months ago. 2 medium-severity issues unresolved.",
+                    "on_chain_activity_summary": "Recent spike in flash loan activity observed on-chain."
                 }
             }
         }
+    }
 
 class StartJobRequest(BaseModel):
-    """Retained for /start_job endpoint - uses old generic input_data model."""
+    """Request model for generic research tasks."""
     identifier_from_purchaser: str
     input_data: dict[str, str]
     
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
-                "identifier_from_purchaser": "example_purchaser_123",
+                "identifier_from_purchaser": "research_task_123",
                 "input_data": {
-                    "text": "Write a story about a robot learning to paint"
+                    "text": "Analyze the impact of recent DeFi regulations on protocol governance"
                 }
             }
         }
+    }
 
 class ProvideInputRequest(BaseModel):
     job_id: str
 
 async def execute_research_task(input_data: dict) -> str:
-    """ Execute a research task with Research and Writing Agents """
+    """Execute a generic research task with ResearchManager"""
     logger.info(f"Starting research task with input: {input_data}")
-    from risk_manager_definition import ResearchTeam
-    team = ResearchTeam(logger=logger)
+    manager = ResearchManager(logger=logger)
     inputs = {"text": input_data.get("text", "")}
-    result = team.agent_team.kickoff(inputs)
+    result = manager.agent_team.kickoff(inputs)
     logger.info("Research task completed successfully")
     return result
 
-async def execute_risk_assessment(risk_type: RiskAssessmentType, input_data: TradingRiskInput | LendingBorrowingRiskInput) -> dict:
-    """ Execute a risk assessment task """
-    logger.info(f"Starting Risk Assessment for type: {risk_type}")
+async def execute_risk_assessment(risk_type: RiskAssessmentType, input_data: RiskInputUnion) -> dict:
+    """Execute a risk assessment task with RiskAssessmentManager"""
+    logger.info(f"Starting Risk Assessment for type: {risk_type.value}")
     
-    team = RiskAssessmentTeam(risk_type=risk_type, logger=logger)
+    manager = RiskAssessmentManager(risk_type=risk_type, logger=logger)
     
-    if risk_type == RiskAssessmentType.trading:
-        inputs = {
-            "token_symbol": input_data.token_symbol,
-            "time_period": input_data.time_period,
-            "more_parameters": input_data.more_parameters,
-        }
-    elif risk_type == RiskAssessmentType.lending_borrowing:
-        inputs = {
-            "borrowing_asset": input_data.borrowing_asset,
-            "borrower_history_summary": input_data.borrower_history_summary,
-        }
-    else:
-        raise ValueError(f"Unknown risk type: {risk_type}")
+    inputs = input_data.model_dump()
+    logger.info(f"Manager Inputs: {inputs}")
 
-    raw_result = team.agent_team.kickoff(inputs)
+    raw_result = manager.agent_team.kickoff(inputs)
     
-    if risk_type == RiskAssessmentType.trading:
-        risk_score = random.randint(10, 60) 
+    if risk_type in [RiskAssessmentType.protocol_security, RiskAssessmentType.trading]:
+        risk_score = random.randint(10, 60)
     else:
-        risk_score = random.randint(40, 90)
+        risk_score = random.randint(30, 80)
         
     formatted_risk = map_risk_score(risk_score)
 
-    logger.info("Risk Assessment task completed.")
+    logger.info("Risk Assessment task completed successfully")
     return {
         "risk_type": risk_type.value,
         "input_data": input_data.model_dump(),
-        "risk_score_percentage": formatted_risk,
+        "risk_score_level": formatted_risk,
+        "risk_score_raw": risk_score,
         "detailed_assessment": raw_result.raw if hasattr(raw_result, "raw") else str(raw_result)
     }
 
 @app.post("/risk_assessment")
-async def start_risk_job(data: RiskAssessmentRequest):
-    """ Initiates a Risk Assessment job and creates a payment request. """
+async def start_risk_assessment(data: RiskAssessmentRequest):
+    """Initiates an on-chain risk assessment job and creates a payment request."""
     try:
         job_id = str(uuid.uuid4())
         
@@ -225,21 +256,18 @@ async def start_risk_job(data: RiskAssessmentRequest):
             "payByTime": payment_request["data"]["payByTime"],
         }
     except Exception as e:
-        logger.error(f"Error in start_risk_job: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Input or internal error: {e}"
-        )
+        logger.error(f"Error in start_risk_assessment: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Input or internal error: {e}")
 
 @app.post("/start_job")
 async def start_job(data: StartJobRequest):
-    """ Initiates a generic job and creates a payment request (Original route retained). """
+    """Initiates a generic research job and creates a payment request."""
     try:
         job_id = str(uuid.uuid4())
         
         input_text = data.input_data["text"]
         truncated_input = input_text[:100] + "..." if len(input_text) > 100 else input_text
-        logger.info(f"Received job request with input: '{truncated_input}'")
+        logger.info(f"Received research request: '{truncated_input}'")
         logger.info(f"Starting job {job_id} with agent {AGENT_IDENTIFIER}")
 
         payment_amount = os.getenv("PAYMENT_AMOUNT", "10000000")
@@ -277,7 +305,7 @@ async def start_job(data: StartJobRequest):
         payment_instances[job_id] = payment
         logger.info(f"Starting payment status monitoring for job {job_id}")
         await payment.start_status_monitoring(payment_callback)
-    
+
         return {
             "status": "success",
             "job_id": job_id,
@@ -294,15 +322,10 @@ async def start_job(data: StartJobRequest):
         }
     except Exception as e:
         logger.error(f"Error in start_job: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Input or internal error: {e}"
-        )
-
-import json
+        raise HTTPException(status_code=400, detail=f"Input or internal error: {e}")
 
 async def handle_payment_status(job_id: str, payment_id: str) -> None:
-    """ Executes the correct task after payment confirmation """
+    """Executes the appropriate task after payment confirmation"""
     try:
         logger.info(f"Payment {payment_id} completed for job {job_id}, executing task...")
         
@@ -310,18 +333,24 @@ async def handle_payment_status(job_id: str, payment_id: str) -> None:
         job["status"] = "running"
         
         result_object = None
+        result_string = None
         
         if job.get("task_type") == "risk_assessment":
             risk_type = RiskAssessmentType(job["input_data"]["risk_type"])
             input_details_json = job["input_data"]["input_details"]
             
             if risk_type == RiskAssessmentType.trading:
-                input_data = TradingRiskInput.model_validate_json(input_details_json)
+                InputModel = TradingRiskInput
             elif risk_type == RiskAssessmentType.lending_borrowing:
-                input_data = LendingBorrowingRiskInput.model_validate_json(input_details_json)
+                InputModel = LendingBorrowingRiskInput
+            elif risk_type == RiskAssessmentType.protocol_security:
+                InputModel = ProtocolSecurityInput
+            elif risk_type == RiskAssessmentType.liquidity_concentration:
+                InputModel = LiquidityRiskInput
             else:
-                 raise ValueError("Invalid risk type in job data.")
+                raise ValueError("Invalid risk type in job data.")
 
+            input_data = InputModel.model_validate_json(input_details_json)
             result_object = await execute_risk_assessment(risk_type, input_data)
             result_string = json.dumps(result_object)
 
@@ -340,7 +369,7 @@ async def handle_payment_status(job_id: str, payment_id: str) -> None:
         jobs[job_id]["status"] = "completed"
         jobs[job_id]["payment_status"] = "completed"
         jobs[job_id]["result"] = result_object
-        
+
         if job_id in payment_instances:
             payment_instances[job_id].stop_status_monitoring()
             del payment_instances[job_id]
@@ -356,7 +385,7 @@ async def handle_payment_status(job_id: str, payment_id: str) -> None:
 
 @app.get("/status")
 async def get_status(job_id: str):
-    """ Retrieves the current status and result of a specific job """
+    """Retrieves the current status and result of a specific job"""
     logger.info(f"Checking status for job {job_id}")
     if job_id not in jobs:
         logger.warning(f"Job {job_id} not found")
@@ -391,39 +420,42 @@ async def get_status(job_id: str):
 
 @app.get("/availability")
 async def check_availability():
-    """ Checks if the server is operational """
-    return {"status": "available", "type": "masumi-risk-agent", "message": "Risk Management Agent operational."}
+    """Checks if the Risk Manager Agent is operational"""
+    return {
+        "status": "available",
+        "type": "on-chain-risk-manager",
+        "message": "On-Chain Risk Manager Agent operational and ready for assessments."
+    }
 
 @app.get("/input_schema")
 async def input_schema():
-    """
-    Returns the expected input schemas for all task endpoints.
-    """
+    """Returns the expected input schemas for all task endpoints."""
+    risk_options = [e.value for e in RiskAssessmentType]
     return {
         "/start_job": {
-            "description": "Schema for the original generic research task.",
+            "description": "Schema for generic research tasks.",
             "input_data": [
                 {
                     "id": "text",
                     "type": "string",
                     "name": "Task Description",
                     "data": {
-                        "description": "The text input for the original generic AI task",
-                        "placeholder": "Enter your task description here"
+                        "description": "The text input for the research task",
+                        "placeholder": "Enter your research task here"
                     }
                 }
             ]
         },
         "/risk_assessment": {
-            "description": "Schema for the new risk assessment task.",
+            "description": "Schema for on-chain DeFi risk assessment tasks.",
             "input_data": [
                 {
                     "id": "risk_type",
                     "type": "enum",
                     "name": "Risk Assessment Type",
                     "data": {
-                        "description": "Specify the type of risk assessment.",
-                        "options": ["trading", "lending_borrowing"]
+                        "description": "Specify the type of on-chain risk assessment.",
+                        "options": risk_options
                     }
                 },
                 {
@@ -437,6 +469,18 @@ async def input_schema():
                     "type": "object",
                     "name": "Lending/Borrowing Risk Input",
                     "data": LendingBorrowingRiskInput.model_json_schema()
+                },
+                {
+                    "id": "input_data_protocol",
+                    "type": "object",
+                    "name": "Protocol Security Input",
+                    "data": ProtocolSecurityInput.model_json_schema()
+                },
+                {
+                    "id": "input_data_liquidity",
+                    "type": "object",
+                    "name": "Liquidity/Concentration Risk Input",
+                    "data": LiquidityRiskInput.model_json_schema()
                 }
             ]
         }
@@ -444,28 +488,27 @@ async def input_schema():
 
 @app.get("/health")
 async def health():
-    """ Returns the health of the server. """
-    return {"status": "healthy"}
+    """Returns the health status of the Risk Manager Agent."""
+    return {"status": "healthy", "agent_type": "on-chain-risk-manager"}
 
 def main():
     """Run the standalone agent flow without the API"""
     os.environ['CREWAI_DISABLE_TELEMETRY'] = 'true'
     
     print("\n" + "=" * 70)
-    print("🚀 Running AI agents locally (standalone mode - generic research)...")
+    print("🚀 Running On-Chain Risk Manager Agent locally (standalone mode)...")
     print("=" * 70 + "\n")
     
-    input_data = {"text": "The impact of AI on the job market"}
+    input_data = {"text": "Analyze the security risks of flash loan attacks in DeFi protocols"}
     
     print(f"Input: {input_data['text']}")
-    print("\nProcessing with ResearchTeam agents...\n")
+    print("\nProcessing with ResearchManager agents...\n")
     
-    from risk_manager_definition import ResearchTeam
-    team = ResearchTeam(verbose=True)
-    result = team.agent_team.kickoff(inputs=input_data)
+    manager = ResearchManager(logger=logger, verbose=True)
+    result = manager.agent_team.kickoff(inputs=input_data)
     
     print("\n" + "=" * 70)
-    print("✅ Agent Output:")
+    print("✅ Manager Output:")
     print("=" * 70 + "\n")
     print(result)
     print("\n" + "=" * 70 + "\n")
@@ -479,11 +522,11 @@ if __name__ == "__main__":
         host = os.environ.get("API_HOST", "127.0.0.1")
 
         print("\n" + "=" * 70)
-        print("🚀 Starting FastAPI Risk Management Agent server...")
+        print("🚀 Starting On-Chain Risk Manager Agent API Server...")
         print("=" * 70)
         print(f"API Documentation:         http://{host}:{port}/docs")
         print(f"Risk Assessment Endpoint:  POST http://{host}:{port}/risk_assessment")
-        print(f"Availability Check:        http://{host}:{port}/availability")
+        print(f"Availability Check:        GET http://{host}:{port}/availability")
         print("=" * 70 + "\n")
 
         uvicorn.run(app, host=host, port=port, log_level="info")

@@ -697,6 +697,17 @@
   box-shadow: 0 0 15px var(--glow-cyan);
 }
 
+/* Add this to fix button clickability */
+.risk-feature-box::before,
+.risk-feature-box::after {
+  pointer-events: none;
+}
+
+.risk-feature-box > * {
+  position: relative;
+  z-index: 1;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .nav {

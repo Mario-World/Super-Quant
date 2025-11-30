@@ -131,7 +131,7 @@ function ModernNavbar() {
       <div className="nav-content">
         <div className="nav-brand">
           <Logo size={32} />
-          <span>Quant Agent</span>
+          <span>Super Quant</span>
         </div>
         <div className="nav-links">
           <Link to="/agents" className={`nav-link ${location.pathname === '/agents' || location.pathname === '/' ? 'active' : ''}`}>

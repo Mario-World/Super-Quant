@@ -2,13 +2,13 @@
 
 ## 🚀 Project Vision
 
-**Masumi Guard** is an ambitious project focused on developing a suite of sophisticated, autonomous AI agents to manage decentralized finance (DeFi) assets. Our goal is to create a fully autonomous **AI Hedge Fund Agent** capable of executing complex trading strategies, conducting real-time risk assessments, and managing transactions with institutional-grade rigor and efficiency.
+**Super Quant** is an ambitious project focused on developing a suite of sophisticated, autonomous AI agents to manage decentralized finance (DeFi) assets. Our goal is to create a fully autonomous **AI Hedge Fund Agent** capable of executing complex trading strategies, conducting real-time risk assessments, and managing transactions with institutional-grade rigor and efficiency.
 
 We are building a highly modular system where specialized AI components work together to deliver an end-to-end investment strategy.
 
 ## ✨ Core Components & Functionality
 
-Masumi Guard is powered by two primary autonomous systems:
+Super Quant is powered by two primary autonomous systems:
 
 ### 1\. Risk Management AI Agent (The Foundation)
 
@@ -21,7 +21,7 @@ This agent provides critical, on-demand risk assessments for various DeFi activi
 
 ### 2\. Autonomous AI Hedge Fund Agent (The Manager)
 
-This is the central nervous system of Masumi Guard. Its primary function is to manage the entire investment lifecycle by delegating tasks to a specialized team of sub-agents:
+This is the central nervous system of Super Quant. Its primary function is to manage the entire investment lifecycle by delegating tasks to a specialized team of sub-agents:
 
 | Agent Name | Primary Responsibility | Focus |
 | :--- | :--- | :--- |
